@@ -334,8 +334,11 @@ class ReportAdmin(object):
             erow[field] = copy.copy(default_value)
         return dict(copy.deepcopy(erow))
 
+    def used_fields(self):
+        return [field for field in self.get_fields() if field not in self.filter_related_fields]
+
     def reorder_dictrow(self, dictrow):
-        return [dictrow[field_name] for field_name in self.get_fields()]
+        return [dictrow[field_name] for field_name in self.used_fields()]
 
     def get_fields(self):
         return [x for x in self.fields if not x in self.related_fields]
@@ -418,6 +421,9 @@ class ReportAdmin(object):
             form_groupby = self.get_form_groupby(context_request)
             form_filter = self.get_form_filter(context_request)
             form_config = self.get_form_config(context_request)
+
+            if hasattr(self, 'ignore_fields'):
+                filter_related_fields.update({k: None for k in self.ignore_fields})
 
             column_labels = self.get_column_names(filter_related_fields)
             report_rows = []
@@ -683,9 +689,11 @@ class ReportAdmin(object):
             resources = new_resources
         return resources
 
-    def compute_row_totals(self, row_config, row_values, is_group_total=False, is_report_total=False):
-        total_row = self.get_empty_row_asdict(self.get_fields(), ReportValue(' '))
-        for field in self.get_fields():
+    def compute_row_totals(self, row_config, row_values, is_group_total=False, is_report_total=False,
+                           filter_related_fields={}):
+        used_fields = [field for field in self.get_fields() if field not in filter_related_fields]
+        total_row = self.get_empty_row_asdict(used_fields, ReportValue(' '))
+        for field in used_fields:
             if field in row_config:
                 fun = row_config[field]
                 value = fun(row_values[field])
@@ -763,6 +771,7 @@ class ReportAdmin(object):
 
     def get_rows(self, groupby_data=None, filter_kwargs={}, filter_related_fields={}):
         report_rows = []
+        self.filter_related_fields = filter_related_fields
 
         for selected_field, field_value in filter_kwargs.items():
             if selected_field in self.override_field_filter_values:
@@ -894,7 +903,9 @@ class ReportAdmin(object):
             report_rows.append([grouper, rows])
         if self.has_report_totals():
             header_report_total = self.compute_row_header(self.report_totals)
-            row = self.compute_row_totals(self.report_totals, row_report_totals, is_report_total=True)
+            row = self.compute_row_totals(self.report_totals, row_report_totals,
+                                          is_report_total=True,
+                                          filter_related_fields=filter_related_fields)
             header_report_total.is_report_totals = True
             row.is_report_totals = True
             report_rows.append([_('Totals'), [header_report_total, row]])
