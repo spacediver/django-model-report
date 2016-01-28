@@ -335,7 +335,8 @@ class ReportAdmin(object):
         return dict(copy.deepcopy(erow))
 
     def used_fields(self):
-        return [field for field in self.get_fields() if field not in self.filter_related_fields]
+        return [field for field in self.get_fields() if field not in self.filter_related_fields and
+                field not in self.do_not_report_fields]
 
     def reorder_dictrow(self, dictrow):
         return [dictrow[field_name] for field_name in self.used_fields()]
@@ -349,7 +350,7 @@ class ReportAdmin(object):
         """
         values = []
         for field, field_name in self.model_fields:
-            if field_name in ignore_columns:
+            if field_name in ignore_columns or field_name in self.do_not_report_fields:
                 continue
             caption = self.override_field_labels.get(field_name, base_label)
             if hasattr(caption, '__call__'):  # Is callable
@@ -422,9 +423,6 @@ class ReportAdmin(object):
             form_filter = self.get_form_filter(context_request)
             form_config = self.get_form_config(context_request)
 
-            if hasattr(self, 'ignore_fields'):
-                filter_related_fields.update({k: None for k in self.ignore_fields})
-
             column_labels = self.get_column_names(filter_related_fields)
             report_rows = []
             report_anchors = []
@@ -432,7 +430,8 @@ class ReportAdmin(object):
 
             if context_request.GET:
                 groupby_data = form_groupby.get_cleaned_data() if form_groupby else None
-                filter_kwargs = filter_related_fields or form_filter.get_filter_kwargs()
+                filter_kwargs = filter_related_fields.copy()
+                filter_kwargs.update(form_filter.get_filter_kwargs())
                 if groupby_data:
                     self.__dict__.update(groupby_data)
                 else:
@@ -691,7 +690,7 @@ class ReportAdmin(object):
 
     def compute_row_totals(self, row_config, row_values, is_group_total=False, is_report_total=False,
                            filter_related_fields={}):
-        used_fields = [field for field in self.get_fields() if field not in filter_related_fields]
+        used_fields = [field for field in self.used_fields() if field not in filter_related_fields]
         total_row = self.get_empty_row_asdict(used_fields, ReportValue(' '))
         for field in used_fields:
             if field in row_config:
@@ -739,7 +738,7 @@ class ReportAdmin(object):
         return values_results
 
     def compute_row_header(self, row_config):
-        header_row = self.get_empty_row_asdict(self.get_fields(), ReportValue(''))
+        header_row = self.get_empty_row_asdict(self.used_fields(), ReportValue(''))
         for report_total_field, fun in row_config.items():
             if hasattr(fun, 'caption'):
                 value = force_unicode(fun.caption)
@@ -780,6 +779,8 @@ class ReportAdmin(object):
         qs = self.get_query_set(filter_kwargs)
         ffields = [f if 'self.' not in f else 'pk' for f in self.get_query_field_names() if f not in filter_related_fields]
         ffields_include_self = [f for f in self.get_query_field_names() if f not in filter_related_fields]
+        ffields = [f for f in ffields if f not in self.do_not_report_fields]
+        ffields_include_self = [f for f in ffields_include_self if f not in self.do_not_report_fields]
         extra_ffield = []
         backend = settings.DATABASES['default']['ENGINE'].split('.')[-1]
         for f in list(ffields):
